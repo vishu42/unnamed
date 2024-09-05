@@ -1,0 +1,71 @@
+name: [[ .Name ]]
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+      environment:
+        type: environment
+        required: true
+      action:
+        type: choice
+        description: plan/apply/destroy
+        options: 
+        - plan
+        - apply
+        - destroy
+
+env:
+  # verbosity setting for Terraform logs
+  # TF_LOG: DEBUG
+  TF_IN_AUTOMATION: "true"
+
+  APPROVE_PULL_REQUESTS: "{{ vars.APPROVE_PULL_REQUESTS }}"
+
+  # Azure Service Principal credentials
+  ARM_CLIENT_ID: "${{ secrets.ARM_CLIENT_ID }}"
+  ARM_CLIENT_SECRET: "${{ secrets.ARM_CLIENT_SECRET }}"
+  ARM_TENANT_ID: "${{ secrets.ARM_TENANT_ID }}"
+  ARM_SUBSCRIPTION_ID: "${{ vars.ARM_SUBSCRIPTION_ID }}"
+
+  # terraform backend storage account key
+  ARM_ACCESS_KEY: "${{ secrets.ARM_ACCESS_KEY }}"
+[[ $prefix := .Prefix  ]]
+  # auto-generated variables
+[[range .Variables.SensitiveVariables]]  [[. | toUpper ]] : "${{ secrets.[[$prefix]][[.]] }}" [[end]]
+[[range .Variables.Variables]]  [[. | toUpper ]] : "${{ secrets.[[$prefix]][[.]] }}" [[end]]
+
+
+jobs:
+  terraform-plan:
+    name: "Terraform - ${{ inputs.environment }} | ${{ inputs.version }}"
+    runs-on: ubuntu-20.04
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: [[ .Path ]]
+    steps:
+      - name: Checkout the repository to the runner
+        uses: actions/checkout@v2
+        with:
+          ref: refs/tags/${{ inputs.version }}
+      - name: Setup Terraform with specified version on the runner
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.9.5
+      - name: Terraform init
+        id: init
+        run: |
+          terraform init -input=false -upgrade
+      - name: Terraform format
+        id: fmt
+        run: terraform fmt -check
+      - name: Terraform validate
+        id: validate
+        run: terraform validate
+      - name: Terraform
+        id: terraform
+        run: terraform ${{ inputs.action }} -no-color -input=false
